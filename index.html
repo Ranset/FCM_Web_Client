@@ -146,23 +146,23 @@
                 <h3 class="text-xl font-bold text-white">Acción Requerida</h3>
             </div>
             <p class="text-slate-300 text-sm mb-4">
-                Tu navegador bloqueó la creación automática del Service Worker. Para continuar, necesitas crear un archivo en tu servidor junto a este HTML.
+                No pudimos crear el Service Worker automáticamente debido a restricciones de seguridad de este navegador.
             </p>
             
             <div class="bg-slate-900 p-4 rounded-lg border border-slate-700 mb-4">
                 <div class="flex justify-between text-xs text-slate-400 mb-2 font-mono">
-                    <span>Nombre del archivo:</span>
+                    <span>Crea este archivo en tu servidor:</span>
                     <span class="text-white">firebase-messaging-sw.js</span>
                 </div>
                 <div class="flex justify-between text-xs text-slate-400 mb-2 font-mono">
-                    <span>Contenido:</span>
+                    <span>Contenido del archivo:</span>
                 </div>
                 <textarea readonly class="w-full h-32 bg-black text-green-400 text-xs font-mono p-2 rounded focus:outline-none resize-none">importScripts('https://www.gstatic.com/firebasejs/11.6.1/firebase-app-compat.js');
 importScripts('https://www.gstatic.com/firebasejs/11.6.1/firebase-messaging-compat.js');
 
 firebase.initializeApp({
-  apiKey: "TU_API_KEY_AQUI", // Opcional en el SW, pero recomendado dejar vacío o config básica
-  messagingSenderId: "TU_SENDER_ID"
+  apiKey: "TU_API_KEY_AQUI", 
+  messagingSenderId: "TU_SENDER_ID_AQUI"
 });
 
 const messaging = firebase.messaging();
@@ -173,9 +173,9 @@ messaging.onBackgroundMessage((payload) => {
             </div>
 
             <p class="text-xs text-slate-500">
-                1. Crea el archivo <code>firebase-messaging-sw.js</code> en la misma carpeta que este HTML.<br>
-                2. Copia el código de arriba en él.<br>
-                3. Recarga esta página e inténtalo de nuevo.
+                1. Crea el archivo <code>firebase-messaging-sw.js</code> en la <strong>misma carpeta</strong> que este HTML.<br>
+                2. Pega el código de arriba.<br>
+                3. Vuelve a hacer clic en el botón "Solicitar Permiso" en esta página.
             </p>
         </div>
     </div>
@@ -215,17 +215,38 @@ messaging.onBackgroundMessage((payload) => {
             logsArea.scrollTop = logsArea.scrollHeight;
         }
 
-        // Logic to generate a dummy Service Worker blob
-        function getServiceWorkerBlob() {
-            const swContent = `
-                self.addEventListener('install', (event) => {
-                    self.skipWaiting();
-                });
-                self.addEventListener('activate', (event) => {
-                    event.waitUntil(self.clients.claim());
-                });
-            `;
-            return new Blob([swContent], { type: 'application/javascript' });
+        // --- CORE LOGIC: Service Worker Registration Strategy ---
+        async function getServiceWorkerRegistration() {
+            // Strategy 1: In-Memory Blob (Works on Chrome/Edge usually)
+            try {
+                log("Intentando registro automático (Memoria)...", 'info');
+                const swContent = `
+                    self.addEventListener('install', (event) => self.skipWaiting());
+                    self.addEventListener('activate', (event) => event.waitUntil(self.clients.claim()));
+                `;
+                const swBlob = new Blob([swContent], { type: 'application/javascript' });
+                const swUrl = URL.createObjectURL(swBlob);
+                const reg = await navigator.serviceWorker.register(swUrl, { scope: './' });
+                await navigator.serviceWorker.ready;
+                log("Registro automático exitoso.", 'success');
+                return reg;
+            } catch (blobError) {
+                console.warn("Blob SW Failed (Expected on some browsers):", blobError);
+                // We deliberately swallow this error to try the fallback
+            }
+
+            // Strategy 2: Physical File (Works if user created the file)
+            try {
+                log("Intentando buscar archivo 'firebase-messaging-sw.js'...", 'warn');
+                const reg = await navigator.serviceWorker.register('./firebase-messaging-sw.js');
+                await navigator.serviceWorker.ready;
+                log("Archivo Service Worker encontrado.", 'success');
+                return reg;
+            } catch (fileError) {
+                console.warn("File SW Failed:", fileError);
+                // Both strategies failed.
+                throw new Error("SHOW_MANUAL_INSTRUCTIONS");
+            }
         }
 
         async function handleGeneration() {
@@ -256,72 +277,38 @@ messaging.onBackgroundMessage((payload) => {
             resultArea.classList.add('hidden');
 
             try {
-                log("Inicializando Firebase App...", 'info');
+                // Initialize App
                 let app;
                 try {
                     app = initializeApp(firebaseConfig);
                 } catch(e) {
                     if(e.code === 'app/duplicate-app') {
-                        // Very rough reload if config changed, otherwise ignore
-                        // For this tool context, we just proceed
-                         log("Instancia previa detectada. Continuando...", 'warn');
-                         // We can't easily get the app instance here without knowing its name if it wasn't default
-                         // But usually it's [DEFAULT].
+                         log("Sesión previa detectada. Continuando...", 'warn');
+                         // Proceed assuming global instance or handling by SDK
                     } else {
                         throw e;
                     }
                 }
-                
-                // If we are here, we need to get the app instance again or assume default
-                // Since we can't 'get' easily, we rely on the fact that if initializeApp threw duplicate, 
-                // the messaging usage below will use the default app implicitly if we don't pass 'app'.
-                // However, getMessaging(app) requires 'app'. 
-                // Let's assume for this tool the user refreshes if they change config. 
-                // If app is undefined due to duplicate error, we can try to proceed carefully.
-                // Re-obtaining the default app instance is not exposed in the modular SDK easily without 'getApp'.
-                // So if app is undefined, let's catch it.
-                if(!app) {
-                     // Try to import getApp dynamically or just warn user to refresh
-                     log("Por favor recarga la página para cambiar la configuración.", 'error');
-                     throw new Error("App initialized twice");
-                }
 
-                const messaging = getMessaging(app);
+                // Get Messaging Instance
+                // Note: If app was duplicate, we rely on default app
+                const messaging = getMessaging(); 
+
+                // --- GET SW REGISTRATION ---
                 let registration;
-
-                // --- ROBUST SW REGISTRATION STRATEGY ---
                 try {
-                    log("1. Intentando registrar SW en memoria...", 'info');
-                    const swBlob = getServiceWorkerBlob();
-                    const swUrl = URL.createObjectURL(swBlob);
-                    
-                    // Try to register the blob
-                    registration = await navigator.serviceWorker.register(swUrl, { scope: './' });
-                    
-                    // Wait for it to be ready
-                    await navigator.serviceWorker.ready;
-                    log("SW en memoria registrado correctamente.", 'success');
-                    
-                } catch (blobError) {
-                    console.warn("Blob SW Failed", blobError);
-                    log(`Fallo método de memoria (${blobError.message}). Intentando método estándar...`, 'warn');
-
-                    try {
-                        // Fallback: Try to find 'firebase-messaging-sw.js'
-                        // We use a relative path './firebase-messaging-sw.js'
-                        registration = await navigator.serviceWorker.register('./firebase-messaging-sw.js');
-                        await navigator.serviceWorker.ready;
-                        log("SW estándar encontrado y registrado.", 'success');
-                    } catch (fileError) {
-                        console.error("File SW Failed", fileError);
-                        // Both failed. This is the error the user was seeing, but now we handled it.
-                        // We must stop here and ask for manual file creation.
+                    registration = await getServiceWorkerRegistration();
+                } catch (swError) {
+                    if (swError.message === "SHOW_MANUAL_INSTRUCTIONS") {
                         manualSwModal.classList.remove('hidden');
-                        throw new Error("SW_REGISTRATION_FAILED"); // Stop execution
+                        log("⚠️ Se requiere acción manual. Mira la ventana emergente.", 'error');
+                        return; // Stop execution here
+                    } else {
+                        throw swError; // Unknown critical error
                     }
                 }
 
-                log("Solicitando token...", 'info');
+                log("Solicitando token a Firebase...", 'info');
                 
                 const currentToken = await getToken(messaging, { 
                     vapidKey: vapidKey,
@@ -338,14 +325,18 @@ messaging.onBackgroundMessage((payload) => {
                 }
 
             } catch (error) {
-                if (error.message === "SW_REGISTRATION_FAILED") {
-                    log("Error crítico: No se encontró Service Worker. Ver instrucciones en pantalla.", 'error');
+                console.error("Main Error Catch:", error);
+                
+                // Specific handling for the Blob protocol error if it somehow leaked through
+                if (error.message && error.message.includes("URL protocol")) {
+                     manualSwModal.classList.remove('hidden');
+                     log("Error de protocolo detectado. Mostrando instrucciones manuales.", 'error');
+                } else if (error.code === 'messaging/permission-blocked') {
+                    log("Error: Permiso de notificaciones bloqueado por el usuario.", 'error');
+                } else if (error.code === 'messaging/unsupported-browser') {
+                    log("Error: Navegador no soportado.", 'error');
                 } else {
-                    console.error(error);
-                    let msg = error.message;
-                    if (error.code === 'messaging/permission-blocked') msg = "Permiso de notificaciones bloqueado.";
-                    if (error.code === 'messaging/unsupported-browser') msg = "Navegador no soportado.";
-                    log(`Error: ${msg}`, 'error');
+                    log(`Error: ${error.message}`, 'error');
                 }
             } finally {
                 btn.disabled = false;
