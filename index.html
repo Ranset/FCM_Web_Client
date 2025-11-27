@@ -43,7 +43,7 @@
             <p class="text-slate-300 text-sm leading-relaxed">
                 Esta herramienta inicializa Firebase en el navegador y solicita permiso de notificación para generar un 
                 <strong>Token de Registro (Registration Token)</strong>. Este token es único para este navegador/dispositivo 
-                y es el que necesitas usar en tu servidor o consola de Firebase para enviar notificaciones de prueba a este dispositivo específico.
+                y es el que necesitas usar en tu servidor o consola de Firebase para enviar notificaciones de prueba.
             </p>
         </div>
 
@@ -61,14 +61,13 @@
                     <textarea id="configInput" rows="8" 
                         class="w-full bg-slate-950 border border-slate-700 rounded-lg p-3 text-xs font-mono text-green-400 focus:ring-2 focus:ring-blue-500 focus:outline-none custom-scroll placeholder-slate-600"
                         placeholder='{
-    "apiKey": "AIzaSy...",
-    "authDomain": "...",
-    "projectId": "...",
-    "storageBucket": "...",
-    "messagingSenderId": "...",
-    "appId": "..."
-    }'>
-</textarea>
+  "apiKey": "AIzaSy...",
+  "authDomain": "...",
+  "projectId": "...",
+  "storageBucket": "...",
+  "messagingSenderId": "...",
+  "appId": "..."
+}'></textarea>
                 </div>
 
                 <!-- VAPID Key Input -->
@@ -122,7 +121,7 @@
         </div>
     </main>
 
-    <!-- Notification Permission Modal (Custom UI) -->
+    <!-- Notification Permission Modal -->
     <div id="permissionModal" class="hidden fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 backdrop-blur-sm">
         <div class="bg-slate-800 p-8 rounded-2xl max-w-md w-full text-center shadow-2xl border border-slate-600">
             <div class="w-16 h-16 bg-blue-900/50 rounded-full flex items-center justify-center mx-auto mb-4">
@@ -130,11 +129,54 @@
             </div>
             <h3 class="text-xl font-bold mb-2">Permisos requeridos</h3>
             <p class="text-slate-300 text-sm mb-6">
-                El navegador te pedirá permiso para mostrar notificaciones. Debes hacer clic en <strong>"Permitir"</strong> para que podamos generar el token único de este dispositivo.
+                El navegador te pedirá permiso para mostrar notificaciones. Haz clic en <strong>"Permitir"</strong> para generar el token.
             </p>
             <button id="requestNativePermissionBtn" class="bg-blue-600 hover:bg-blue-500 text-white font-bold py-2 px-6 rounded-lg w-full transition">
                 Entendido, solicitar ahora
             </button>
+        </div>
+    </div>
+
+    <!-- Manual SW Requirement Modal (New Fallback) -->
+    <div id="manualSwModal" class="hidden fixed inset-0 bg-black bg-opacity-80 flex items-center justify-center z-50 backdrop-blur-sm">
+        <div class="bg-slate-800 p-8 rounded-2xl max-w-lg w-full shadow-2xl border border-red-500/50 relative">
+            <button id="closeManualModal" class="absolute top-4 right-4 text-slate-400 hover:text-white"><i class="fa-solid fa-xmark"></i></button>
+            <div class="flex items-center gap-3 mb-4">
+                <i class="fa-solid fa-triangle-exclamation text-yellow-400 text-2xl"></i>
+                <h3 class="text-xl font-bold text-white">Acción Requerida</h3>
+            </div>
+            <p class="text-slate-300 text-sm mb-4">
+                Tu navegador bloqueó la creación automática del Service Worker. Para continuar, necesitas crear un archivo en tu servidor junto a este HTML.
+            </p>
+            
+            <div class="bg-slate-900 p-4 rounded-lg border border-slate-700 mb-4">
+                <div class="flex justify-between text-xs text-slate-400 mb-2 font-mono">
+                    <span>Nombre del archivo:</span>
+                    <span class="text-white">firebase-messaging-sw.js</span>
+                </div>
+                <div class="flex justify-between text-xs text-slate-400 mb-2 font-mono">
+                    <span>Contenido:</span>
+                </div>
+                <textarea readonly class="w-full h-32 bg-black text-green-400 text-xs font-mono p-2 rounded focus:outline-none resize-none">importScripts('https://www.gstatic.com/firebasejs/11.6.1/firebase-app-compat.js');
+importScripts('https://www.gstatic.com/firebasejs/11.6.1/firebase-messaging-compat.js');
+
+firebase.initializeApp({
+  apiKey: "TU_API_KEY_AQUI", // Opcional en el SW, pero recomendado dejar vacío o config básica
+  messagingSenderId: "TU_SENDER_ID"
+});
+
+const messaging = firebase.messaging();
+
+messaging.onBackgroundMessage((payload) => {
+  console.log('[firebase-messaging-sw.js] Mensaje recibido en segundo plano ', payload);
+});</textarea>
+            </div>
+
+            <p class="text-xs text-slate-500">
+                1. Crea el archivo <code>firebase-messaging-sw.js</code> en la misma carpeta que este HTML.<br>
+                2. Copia el código de arriba en él.<br>
+                3. Recarga esta página e inténtalo de nuevo.
+            </p>
         </div>
     </div>
 
@@ -153,6 +195,8 @@
         const clearLogsBtn = document.getElementById('clearLogs');
         const permissionModal = document.getElementById('permissionModal');
         const requestNativePermissionBtn = document.getElementById('requestNativePermissionBtn');
+        const manualSwModal = document.getElementById('manualSwModal');
+        const closeManualModal = document.getElementById('closeManualModal');
 
         // Helpers
         function log(msg, type = 'info') {
@@ -172,8 +216,6 @@
         }
 
         // Logic to generate a dummy Service Worker blob
-        // getToken requires a Service Worker registration. Since we are in a single file
-        // and cannot easily host a separate .js file, we create one in memory.
         function getServiceWorkerBlob() {
             const swContent = `
                 self.addEventListener('install', (event) => {
@@ -182,8 +224,6 @@
                 self.addEventListener('activate', (event) => {
                     event.waitUntil(self.clients.claim());
                 });
-                // This is a dummy SW just to satisfy getToken requirements for a scope.
-                // It does NOT handle background messages because we can't import scripts easily inside a blob without CORS issues sometimes.
             `;
             return new Blob([swContent], { type: 'application/javascript' });
         }
@@ -204,14 +244,10 @@
 
             let firebaseConfig;
             try {
-                // Try to parse relaxed JSON (incase user pasted keys without quotes)
-                // Using new Function to allow loose object literal syntax common in JS configs
                 const sanitizedStr = configStr.replace(/const firebaseConfig =/g, '').replace(/;/g, '');
-                // Safe-ish parsing for this context
                 firebaseConfig = JSON.parse(sanitizedStr);
             } catch (e) {
-                log("Error de sintaxis en el JSON de configuración. Asegúrate de que sea un JSON válido.", 'error');
-                console.error(e);
+                log("Error de sintaxis en el JSON de configuración.", 'error');
                 return;
             }
 
@@ -221,42 +257,72 @@
 
             try {
                 log("Inicializando Firebase App...", 'info');
-                // Check if app already initialized (prevent duplicate error)
                 let app;
                 try {
                     app = initializeApp(firebaseConfig);
                 } catch(e) {
                     if(e.code === 'app/duplicate-app') {
-                        // This handles re-clicks without page reload mostly
-                        log("Reutilizando instancia de App existente...", 'warn');
-                        // In a real module system we can't easily get the existing instance by name without re-importing getApp
-                        // For this tool, we assume the user will refresh if they change config, 
-                        // but proceed anyway as the logic below creates a fresh messaging instance.
-                         window.location.reload(); // Simplest way to clear firebase state in this sandbox
-                        return;
+                        // Very rough reload if config changed, otherwise ignore
+                        // For this tool context, we just proceed
+                         log("Instancia previa detectada. Continuando...", 'warn');
+                         // We can't easily get the app instance here without knowing its name if it wasn't default
+                         // But usually it's [DEFAULT].
                     } else {
                         throw e;
                     }
                 }
                 
-                const messaging = getMessaging(app);
+                // If we are here, we need to get the app instance again or assume default
+                // Since we can't 'get' easily, we rely on the fact that if initializeApp threw duplicate, 
+                // the messaging usage below will use the default app implicitly if we don't pass 'app'.
+                // However, getMessaging(app) requires 'app'. 
+                // Let's assume for this tool the user refreshes if they change config. 
+                // If app is undefined due to duplicate error, we can try to proceed carefully.
+                // Re-obtaining the default app instance is not exposed in the modular SDK easily without 'getApp'.
+                // So if app is undefined, let's catch it.
+                if(!app) {
+                     // Try to import getApp dynamically or just warn user to refresh
+                     log("Por favor recarga la página para cambiar la configuración.", 'error');
+                     throw new Error("App initialized twice");
+                }
 
-                log("Registrando Service Worker temporal...", 'info');
-                
-                // Register Blob SW
-                const swBlob = getServiceWorkerBlob();
-                const swUrl = URL.createObjectURL(swBlob);
-                
-                const registration = await navigator.serviceWorker.register(swUrl, {
-                    scope: './' // Current scope
-                });
-                
-                await navigator.serviceWorker.ready;
-                log("Service Worker registrado correctamente.", 'success');
+                const messaging = getMessaging(app);
+                let registration;
+
+                // --- ROBUST SW REGISTRATION STRATEGY ---
+                try {
+                    log("1. Intentando registrar SW en memoria...", 'info');
+                    const swBlob = getServiceWorkerBlob();
+                    const swUrl = URL.createObjectURL(swBlob);
+                    
+                    // Try to register the blob
+                    registration = await navigator.serviceWorker.register(swUrl, { scope: './' });
+                    
+                    // Wait for it to be ready
+                    await navigator.serviceWorker.ready;
+                    log("SW en memoria registrado correctamente.", 'success');
+                    
+                } catch (blobError) {
+                    console.warn("Blob SW Failed", blobError);
+                    log(`Fallo método de memoria (${blobError.message}). Intentando método estándar...`, 'warn');
+
+                    try {
+                        // Fallback: Try to find 'firebase-messaging-sw.js'
+                        // We use a relative path './firebase-messaging-sw.js'
+                        registration = await navigator.serviceWorker.register('./firebase-messaging-sw.js');
+                        await navigator.serviceWorker.ready;
+                        log("SW estándar encontrado y registrado.", 'success');
+                    } catch (fileError) {
+                        console.error("File SW Failed", fileError);
+                        // Both failed. This is the error the user was seeing, but now we handled it.
+                        // We must stop here and ask for manual file creation.
+                        manualSwModal.classList.remove('hidden');
+                        throw new Error("SW_REGISTRATION_FAILED"); // Stop execution
+                    }
+                }
 
                 log("Solicitando token...", 'info');
                 
-                // Get Token
                 const currentToken = await getToken(messaging, { 
                     vapidKey: vapidKey,
                     serviceWorkerRegistration: registration 
@@ -266,21 +332,21 @@
                     log("¡Token recibido con éxito!", 'success');
                     tokenDisplay.value = currentToken;
                     resultArea.classList.remove('hidden');
-                    // Scroll to result
                     resultArea.scrollIntoView({ behavior: 'smooth' });
                 } else {
-                    log("No se pudo obtener el token. Es posible que falten permisos.", 'warn');
+                    log("No se pudo obtener el token. Permisos insuficientes.", 'warn');
                 }
 
             } catch (error) {
-                console.error(error);
-                let msg = error.message;
-                if (error.code === 'messaging/permission-blocked') {
-                    msg = "El permiso de notificaciones fue bloqueado. Habilítalo en la configuración del navegador (candado en la URL).";
-                } else if (error.code === 'messaging/unsupported-browser') {
-                    msg = "Este navegador no soporta Web Push / FCM.";
+                if (error.message === "SW_REGISTRATION_FAILED") {
+                    log("Error crítico: No se encontró Service Worker. Ver instrucciones en pantalla.", 'error');
+                } else {
+                    console.error(error);
+                    let msg = error.message;
+                    if (error.code === 'messaging/permission-blocked') msg = "Permiso de notificaciones bloqueado.";
+                    if (error.code === 'messaging/unsupported-browser') msg = "Navegador no soportado.";
+                    log(`Error: ${msg}`, 'error');
                 }
-                log(`Error: ${msg}`, 'error');
             } finally {
                 btn.disabled = false;
                 btn.innerHTML = '<i class="fa-regular fa-bell"></i> Solicitar Permiso y Obtener Token';
@@ -317,11 +383,14 @@
             logsArea.innerHTML = '<div class="text-slate-500 italic">Esperando configuración...</div>';
             resultArea.classList.add('hidden');
         });
+        
+        closeManualModal.addEventListener('click', () => {
+            manualSwModal.classList.add('hidden');
+        });
 
-        // Pre-fill check (optional convenience)
         window.addEventListener('load', () => {
             if (!('serviceWorker' in navigator)) {
-                log("ADVERTENCIA: Tu navegador no soporta Service Workers. Esta herramienta no funcionará.", 'error');
+                log("ADVERTENCIA: Tu navegador no soporta Service Workers.", 'error');
                 btn.disabled = true;
             }
         });
