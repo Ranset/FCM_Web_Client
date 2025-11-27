@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Generador de Token FCM</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap');
+        body { font-family: 'Inter', sans-serif; }
+        /* Custom scrollbar for code areas */
+        .custom-scroll::-webkit-scrollbar { width: 8px; height: 8px; }
+        .custom-scroll::-webkit-scrollbar-track { background: #1f2937; }
+        .custom-scroll::-webkit-scrollbar-thumb { background: #4b5563; border-radius: 4px; }
+        .custom-scroll::-webkit-scrollbar-thumb:hover { background: #6b7280; }
+        
+        .fade-in { animation: fadeIn 0.3s ease-in; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+    </style>
+</head>
+<body class="bg-slate-900 text-slate-100 min-h-screen flex flex-col">
+
+    <!-- Navbar -->
+    <nav class="bg-slate-800 border-b border-slate-700 p-4 shadow-lg">
+        <div class="max-w-5xl mx-auto flex items-center justify-between">
+            <div class="flex items-center space-x-3">
+                <i class="fa-solid fa-fire text-orange-500 text-2xl"></i>
+                <h1 class="text-xl font-bold tracking-tight">FCM Token Generator</h1>
+            </div>
+            <div class="text-sm text-slate-400">
+                Firebase Cloud Messaging
+            </div>
+        </div>
+    </nav>
+
+    <!-- Main Content -->
+    <main class="flex-grow container mx-auto px-4 py-8 max-w-4xl">
+        
+        <!-- Intro Card -->
+        <div class="bg-slate-800 rounded-xl shadow-xl border border-slate-700 p-6 mb-6">
+            <h2 class="text-lg font-semibold mb-2 text-blue-400">¿Cómo funciona?</h2>
+            <p class="text-slate-300 text-sm leading-relaxed">
+                Esta herramienta inicializa Firebase en el navegador y solicita permiso de notificación para generar un 
+                <strong>Token de Registro (Registration Token)</strong>. Este token es único para este navegador/dispositivo 
+                y es el que necesitas usar en tu servidor o consola de Firebase para enviar notificaciones de prueba a este dispositivo específico.
+            </p>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            
+            <!-- Left Column: Configuration -->
+            <div class="space-y-6">
+                
+                <!-- Config Input -->
+                <div class="bg-slate-800 rounded-xl p-6 border border-slate-700 shadow-lg">
+                    <label class="block text-sm font-medium text-slate-300 mb-2">
+                        1. Objeto de Configuración Firebase
+                        <span class="block text-xs text-slate-500 font-normal mt-1">Pega el objeto JSON de tu consola (sin 'const firebaseConfig =').</span>
+                    </label>
+                    <textarea id="configInput" rows="8" 
+                        class="w-full bg-slate-950 border border-slate-700 rounded-lg p-3 text-xs font-mono text-green-400 focus:ring-2 focus:ring-blue-500 focus:outline-none custom-scroll placeholder-slate-600"
+                        placeholder='{
+    "apiKey": "AIzaSy...",
+    "authDomain": "...",
+    "projectId": "...",
+    "storageBucket": "...",
+    "messagingSenderId": "...",
+    "appId": "..."
+    }'>
+</textarea>
+                </div>
+
+                <!-- VAPID Key Input -->
+                <div class="bg-slate-800 rounded-xl p-6 border border-slate-700 shadow-lg">
+                    <label class="block text-sm font-medium text-slate-300 mb-2">
+                        2. Clave VAPID (Web Push Certificate)
+                        <span class="block text-xs text-slate-500 font-normal mt-1">
+                            Encuéntrala en: Configuración del proyecto > Cloud Messaging > Certificados Web Push.
+                        </span>
+                    </label>
+                    <input type="text" id="vapidInput" 
+                        class="w-full bg-slate-950 border border-slate-700 rounded-lg p-3 text-sm font-mono text-white focus:ring-2 focus:ring-blue-500 focus:outline-none placeholder-slate-600"
+                        placeholder="BKy..." />
+                </div>
+
+                <!-- Action Button -->
+                <button id="getTokenBtn" class="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-4 px-6 rounded-xl transition-all shadow-lg transform active:scale-95 flex justify-center items-center gap-2">
+                    <i class="fa-regular fa-bell"></i>
+                    Solicitar Permiso y Obtener Token
+                </button>
+
+            </div>
+
+            <!-- Right Column: Console & Output -->
+            <div class="flex flex-col h-full">
+                <div class="bg-slate-950 rounded-xl border border-slate-700 shadow-lg flex flex-col h-full overflow-hidden">
+                    <div class="bg-slate-900 px-4 py-3 border-b border-slate-800 flex justify-between items-center">
+                        <span class="text-xs font-mono text-slate-400">LOGS DE SISTEMA</span>
+                        <button id="clearLogs" class="text-xs text-slate-500 hover:text-white transition">Limpiar</button>
+                    </div>
+                    
+                    <div id="logsArea" class="flex-grow p-4 font-mono text-xs overflow-y-auto custom-scroll space-y-2 h-96 lg:h-auto">
+                        <div class="text-slate-500 italic">Esperando configuración...</div>
+                    </div>
+
+                    <!-- Token Result Area (Hidden initially) -->
+                    <div id="resultArea" class="hidden border-t border-slate-700 bg-slate-900 p-6">
+                        <label class="block text-xs font-bold text-green-400 uppercase mb-2">¡Token Generado con Éxito!</label>
+                        <div class="relative">
+                            <textarea id="tokenDisplay" readonly class="w-full bg-black border border-green-900 text-green-500 p-3 rounded-lg text-xs break-all h-24 focus:outline-none resize-none"></textarea>
+                            <button id="copyBtn" class="absolute top-2 right-2 bg-slate-800 hover:bg-slate-700 text-white text-xs px-3 py-1 rounded border border-slate-600 transition">
+                                <i class="fa-regular fa-copy"></i> Copiar
+                            </button>
+                        </div>
+                        <p class="text-xs text-slate-500 mt-2 text-center">
+                            Usa este token en el campo "Token de dispositivo" en el compositor de notificaciones de Firebase.
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- Notification Permission Modal (Custom UI) -->
+    <div id="permissionModal" class="hidden fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 backdrop-blur-sm">
+        <div class="bg-slate-800 p-8 rounded-2xl max-w-md w-full text-center shadow-2xl border border-slate-600">
+            <div class="w-16 h-16 bg-blue-900/50 rounded-full flex items-center justify-center mx-auto mb-4">
+                <i class="fa-solid fa-bell text-blue-400 text-2xl"></i>
+            </div>
+            <h3 class="text-xl font-bold mb-2">Permisos requeridos</h3>
+            <p class="text-slate-300 text-sm mb-6">
+                El navegador te pedirá permiso para mostrar notificaciones. Debes hacer clic en <strong>"Permitir"</strong> para que podamos generar el token único de este dispositivo.
+            </p>
+            <button id="requestNativePermissionBtn" class="bg-blue-600 hover:bg-blue-500 text-white font-bold py-2 px-6 rounded-lg w-full transition">
+                Entendido, solicitar ahora
+            </button>
+        </div>
+    </div>
+
+    <script type="module">
+        import { initializeApp } from 'https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js';
+        import { getMessaging, getToken } from 'https://www.gstatic.com/firebasejs/11.6.1/firebase-messaging.js';
+
+        // Elements
+        const configInput = document.getElementById('configInput');
+        const vapidInput = document.getElementById('vapidInput');
+        const btn = document.getElementById('getTokenBtn');
+        const logsArea = document.getElementById('logsArea');
+        const resultArea = document.getElementById('resultArea');
+        const tokenDisplay = document.getElementById('tokenDisplay');
+        const copyBtn = document.getElementById('copyBtn');
+        const clearLogsBtn = document.getElementById('clearLogs');
+        const permissionModal = document.getElementById('permissionModal');
+        const requestNativePermissionBtn = document.getElementById('requestNativePermissionBtn');
+
+        // Helpers
+        function log(msg, type = 'info') {
+            const div = document.createElement('div');
+            const time = new Date().toLocaleTimeString();
+            let color = 'text-slate-300';
+            let icon = 'fa-circle-info';
+
+            if (type === 'success') { color = 'text-green-400'; icon = 'fa-check'; }
+            if (type === 'error') { color = 'text-red-400'; icon = 'fa-circle-xmark'; }
+            if (type === 'warn') { color = 'text-yellow-400'; icon = 'fa-triangle-exclamation'; }
+
+            div.className = `${color} border-l-2 border-slate-700 pl-2 py-1 text-xs font-mono break-words fade-in`;
+            div.innerHTML = `<span class="opacity-50">[${time}]</span> <i class="fa-solid ${icon} mr-1"></i> ${msg}`;
+            logsArea.appendChild(div);
+            logsArea.scrollTop = logsArea.scrollHeight;
+        }
+
+        // Logic to generate a dummy Service Worker blob
+        // getToken requires a Service Worker registration. Since we are in a single file
+        // and cannot easily host a separate .js file, we create one in memory.
+        function getServiceWorkerBlob() {
+            const swContent = `
+                self.addEventListener('install', (event) => {
+                    self.skipWaiting();
+                });
+                self.addEventListener('activate', (event) => {
+                    event.waitUntil(self.clients.claim());
+                });
+                // This is a dummy SW just to satisfy getToken requirements for a scope.
+                // It does NOT handle background messages because we can't import scripts easily inside a blob without CORS issues sometimes.
+            `;
+            return new Blob([swContent], { type: 'application/javascript' });
+        }
+
+        async function handleGeneration() {
+            // Validation
+            const configStr = configInput.value.trim();
+            const vapidKey = vapidInput.value.trim();
+
+            if (!configStr) {
+                log("Error: Debes pegar la configuración de Firebase.", 'error');
+                return;
+            }
+            if (!vapidKey) {
+                log("Error: Falta la clave VAPID.", 'error');
+                return;
+            }
+
+            let firebaseConfig;
+            try {
+                // Try to parse relaxed JSON (incase user pasted keys without quotes)
+                // Using new Function to allow loose object literal syntax common in JS configs
+                const sanitizedStr = configStr.replace(/const firebaseConfig =/g, '').replace(/;/g, '');
+                // Safe-ish parsing for this context
+                firebaseConfig = JSON.parse(sanitizedStr);
+            } catch (e) {
+                log("Error de sintaxis en el JSON de configuración. Asegúrate de que sea un JSON válido.", 'error');
+                console.error(e);
+                return;
+            }
+
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Procesando...';
+            resultArea.classList.add('hidden');
+
+            try {
+                log("Inicializando Firebase App...", 'info');
+                // Check if app already initialized (prevent duplicate error)
+                let app;
+                try {
+                    app = initializeApp(firebaseConfig);
+                } catch(e) {
+                    if(e.code === 'app/duplicate-app') {
+                        // This handles re-clicks without page reload mostly
+                        log("Reutilizando instancia de App existente...", 'warn');
+                        // In a real module system we can't easily get the existing instance by name without re-importing getApp
+                        // For this tool, we assume the user will refresh if they change config, 
+                        // but proceed anyway as the logic below creates a fresh messaging instance.
+                         window.location.reload(); // Simplest way to clear firebase state in this sandbox
+                        return;
+                    } else {
+                        throw e;
+                    }
+                }
+                
+                const messaging = getMessaging(app);
+
+                log("Registrando Service Worker temporal...", 'info');
+                
+                // Register Blob SW
+                const swBlob = getServiceWorkerBlob();
+                const swUrl = URL.createObjectURL(swBlob);
+                
+                const registration = await navigator.serviceWorker.register(swUrl, {
+                    scope: './' // Current scope
+                });
+                
+                await navigator.serviceWorker.ready;
+                log("Service Worker registrado correctamente.", 'success');
+
+                log("Solicitando token...", 'info');
+                
+                // Get Token
+                const currentToken = await getToken(messaging, { 
+                    vapidKey: vapidKey,
+                    serviceWorkerRegistration: registration 
+                });
+
+                if (currentToken) {
+                    log("¡Token recibido con éxito!", 'success');
+                    tokenDisplay.value = currentToken;
+                    resultArea.classList.remove('hidden');
+                    // Scroll to result
+                    resultArea.scrollIntoView({ behavior: 'smooth' });
+                } else {
+                    log("No se pudo obtener el token. Es posible que falten permisos.", 'warn');
+                }
+
+            } catch (error) {
+                console.error(error);
+                let msg = error.message;
+                if (error.code === 'messaging/permission-blocked') {
+                    msg = "El permiso de notificaciones fue bloqueado. Habilítalo en la configuración del navegador (candado en la URL).";
+                } else if (error.code === 'messaging/unsupported-browser') {
+                    msg = "Este navegador no soporta Web Push / FCM.";
+                }
+                log(`Error: ${msg}`, 'error');
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fa-regular fa-bell"></i> Solicitar Permiso y Obtener Token';
+            }
+        }
+
+        // Event Listeners
+        btn.addEventListener('click', () => {
+            if (Notification.permission === 'default') {
+                permissionModal.classList.remove('hidden');
+            } else {
+                handleGeneration();
+            }
+        });
+
+        requestNativePermissionBtn.addEventListener('click', () => {
+            permissionModal.classList.add('hidden');
+            handleGeneration();
+        });
+
+        copyBtn.addEventListener('click', () => {
+            tokenDisplay.select();
+            document.execCommand('copy');
+            const originalText = copyBtn.innerHTML;
+            copyBtn.innerHTML = '<i class="fa-solid fa-check"></i> Copiado';
+            copyBtn.classList.add('bg-green-600', 'border-green-500');
+            setTimeout(() => {
+                copyBtn.innerHTML = originalText;
+                copyBtn.classList.remove('bg-green-600', 'border-green-500');
+            }, 2000);
+        });
+
+        clearLogsBtn.addEventListener('click', () => {
+            logsArea.innerHTML = '<div class="text-slate-500 italic">Esperando configuración...</div>';
+            resultArea.classList.add('hidden');
+        });
+
+        // Pre-fill check (optional convenience)
+        window.addEventListener('load', () => {
+            if (!('serviceWorker' in navigator)) {
+                log("ADVERTENCIA: Tu navegador no soporta Service Workers. Esta herramienta no funcionará.", 'error');
+                btn.disabled = true;
+            }
+        });
+
+    </script>
+</body>
+</html>
