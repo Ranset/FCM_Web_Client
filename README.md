@@ -1,0 +1,1 @@
+Esta herramienta inicializa Firebase en el navegador y solicita permiso de notificación para generar un Token de Registro (Registration Token). Este token es único para este navegador/dispositivo y es el que necesitas usar en tu servidor o consola de Firebase para enviar notificaciones de prueba.
