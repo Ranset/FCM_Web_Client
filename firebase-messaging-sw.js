@@ -2,8 +2,8 @@ importScripts('https://www.gstatic.com/firebasejs/11.6.1/firebase-app-compat.js'
 importScripts('https://www.gstatic.com/firebasejs/11.6.1/firebase-messaging-compat.js');
 
 firebase.initializeApp({
-  apiKey: "TU_API_KEY_AQUI", 
-  messagingSenderId: "TU_SENDER_ID_AQUI"
+  apiKey: "AIzaSyCnY3hILp6EJ6XUFOzTA7dsu7InFYaE8dA", 
+  messagingSenderId: "301486367280"
 });
 
 const messaging = firebase.messaging();
